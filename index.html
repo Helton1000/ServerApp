@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Monitor Fluido com Áudio</title>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    
+    <style>
+        body { 
+            background: #000; 
+            color: #fff; 
+            text-align: center; 
+            font-family: sans-serif; 
+        }
+
+        #play { 
+            width: 480px; 
+            border: 2px solid #333;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+
+        .controls { 
+            margin-top: 40px; 
+        }
+
+        button { 
+            padding: 10px 20px; 
+            cursor: pointer; 
+            background: #28a745; 
+            color: white; 
+            border: none; 
+            border-radius: 5px; 
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>Stream em Tempo Real</h1>
+    
+    <img id="play" alt="Aguardando vídeo...">
+    
+    <div class="controls">
+        <button id="startAudioBtn">Ativar Áudio Bidirecional</button>
+        <p id="status">Clique no botão para iniciar o áudio</p>
+    </div>
+
+    <script>
+        const socket = io('http://localhost:3000');
+
+        const img = document.getElementById('play');
+        const status = document.getElementById('status');
+        const startBtn = document.getElementById('startAudioBtn');
+
+        socket.on('frame', (data) => {
+            const blob = new Blob([data], { type: 'image/jpeg' });
+            const url = URL.createObjectURL(blob);
+            img.src = url;
+
+            img.onload = () => URL.revokeObjectURL(url);
+        });
+
+        let audioContext;
+        let nextTime = 0;
+
+        startBtn.onclick = async () => {
+            startBtn.disabled = true;
+            status.innerText = "Iniciando áudio...";
+
+            try {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                    sampleRate: 44100
+                });
+
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const source = audioContext.createMediaStreamSource(stream);
+
+                const processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+                source.connect(processor);
+                processor.connect(audioContext.destination);
+
+                processor.onaudioprocess = (e) => {
+                    const input = e.inputBuffer.getChannelData(0);
+                    const int16 = new Int16Array(input.length);
+
+                    for (let i = 0; i < input.length; i++) {
+                        int16[i] = Math.max(-1, Math.min(1, input[i])) * 32767;
+                    }
+
+                    socket.emit('audio', int16.buffer);
+                };
+
+                socket.on('audio', (data) => {
+                    const int16 = new Int16Array(data);
+                    const float32 = new Float32Array(int16.length);
+
+                    for (let i = 0; i < int16.length; i++) {
+                        float32[i] = int16[i] / 32768;
+                    }
+
+                    const buffer = audioContext.createBuffer(1, float32.length, 44100);
+                    buffer.getChannelData(0).set(float32);
+
+                    const sourceNode = audioContext.createBufferSource();
+                    sourceNode.buffer = buffer;
+                    sourceNode.connect(audioContext.destination);
+
+                    if (nextTime < audioContext.currentTime) {
+                        nextTime = audioContext.currentTime;
+                    }
+
+                    sourceNode.start(nextTime);
+                    nextTime += buffer.duration;
+                });
+
+                status.innerText = "Áudio e Vídeo Ativos!";
+
+            } catch (err) {
+                console.error("Erro ao acessar microfone:", err);
+                status.innerText = "Erro ao acessar microfone.";
+                startBtn.disabled = false;
+            }
+        };
+
+        socket.on('disconnect', () => {
+            status.innerText = "Desconectado do servidor.";
+            startBtn.disabled = false;
+        });
+
+    </script>
+
+</body>
+</html>
