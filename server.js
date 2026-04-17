@@ -1,33 +1,38 @@
 const express = require('express');
 const app = express();
 const server = require('http').createServer(app);
-const io = require('socket.io')(server, {cors: { origin: "*" },
+const io = require('socket.io')(server, {
+    cors: { origin: "*" },
     allowEIO3: true,
     transports: ['websocket', 'polling']
-});
-
-app.get('/', (req, res) => {
-    res.sendFile(__dirname + '/index.html');
 });
 
 io.on('connection', (socket) => {
     console.log('✅ Dispositivo conectado: ' + socket.id);
 
-    socket.on('frame', (data) => {  
-        socket.broadcast.emit('frame', data);
+    // O "Offer" é a proposta inicial de conexão
+    socket.on('offer', (data) => {
+        console.log('📡 Encaminhando offer de ' + socket.id);
+        socket.broadcast.emit('offer', data);
     });
 
-    socket.on('audio', (data) => {
-        socket.broadcast.emit('audio', data);
+    // O "Answer" é a resposta do Guide à proposta do Operator
+    socket.on('answer', (data) => {
+        console.log('📡 Encaminhando answer de ' + socket.id);
+        socket.broadcast.emit('answer', data);
+    });
+
+    // O "Candidate" são os caminhos de rede (IPs) para a conexão P2P
+    socket.on('candidate', (data) => {
+        socket.broadcast.emit('candidate', data);
     });
 
     socket.on('disconnect', (reason) => {
-        console.log('❌ Desconectado: ' + reason);
+        console.log('❌ Desconectado: ' + socket.id);
     });
 });
 
 const PORT = 3000;
 server.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Servidor rodando em http://localhost:${PORT}`);
-    console.log(`📱 No Android, use o IP da sua rede na porta ${PORT}`);
+    console.log(`🚀 Servidor de sinalização rodando em http://0.0.0.0:${PORT}`);
 });
